@@ -2,7 +2,7 @@ import streamlit as st
 import pandas as pd
 import numpy as np
 
-# Sayfa Ayarları
+# Sayfa Ayarları: Geniş ekran kullanımı
 st.set_page_config(page_title="Cronbach's Alpha Optimizer", layout="wide")
 
 def calculate_cronbach_alpha(df):
@@ -25,6 +25,9 @@ def calculate_cronbach_alpha(df):
     return alpha
 
 def optimize_scale(df, target=0.70):
+    """
+    Adım adım optimizasyon algoritması.
+    """
     history = []
     current_cols = list(df.columns)
     
@@ -79,7 +82,7 @@ def optimize_scale(df, target=0.70):
 # --- ARAYÜZ (UI) ---
 
 st.title("📊 Cronbach's Alpha Optimizer")
-st.markdown("Excel dosyanızı yükleyin, listeden soruları seçin ve ölçeğinizi optimize edin.")
+st.markdown("Excel dosyanızı yükleyin, sol taraftan soruları seçin ve sağ taraftan metin sütunlarını kontrol edin.")
 
 uploaded_file = st.file_uploader("Excel Dosyasını Yükle (.xlsx)", type=["xlsx"])
 
@@ -87,7 +90,7 @@ if uploaded_file:
     try:
         df_raw = pd.read_excel(uploaded_file)
         
-        # --- Sadece Sayısal Sütunları Al ---
+        # --- Veriyi Türlerine Göre Ayır ---
         numeric_df = df_raw.select_dtypes(include=[np.number])
         text_df = df_raw.select_dtypes(exclude=[np.number])
         
@@ -98,54 +101,75 @@ if uploaded_file:
             st.error("Yüklenen dosyada sayısal sütun bulunamadı!")
             st.stop()
 
-        st.success(f"Dosya Analiz Edildi: {len(numeric_cols)} adet sayısal sütun (soru) bulundu.")
-
         st.divider()
 
-        # --- YENİ SÜTUN SEÇİM EKRANI (EXCEL TARZI LİSTE) ---
-        st.subheader("1. Analiz Edilecek Soruları Seçin")
-        st.info("Aşağıdaki listeden analize dahil etmek istediğiniz soruların yanındaki kutucuğu işaretleyin.")
+        # --- EKRANI İKİYE BÖL (SOL: SAYISAL, SAĞ: METİN) ---
+        col_left, col_right = st.columns([2, 1]) # Sol taraf biraz daha geniş olsun
+        
+        # --- SOL TARAFI AYARLA (SEÇİLEBİLİR ALAN) ---
+        with col_left:
+            st.subheader("1. Analize Dahil Edilecek Sorular")
+            st.info("Analiz etmek istediğiniz soruları buradan seçin.")
+            
+            # Seçim verisi hazırlığı
+            selection_data = pd.DataFrame({
+                "Seç": [True] * len(numeric_cols),
+                "Soru / Sütun Adı": numeric_cols
+            })
+            
+            # Data Editor (Checkbox'lı)
+            edited_df = st.data_editor(
+                selection_data,
+                column_config={
+                    "Seç": st.column_config.CheckboxColumn(
+                        "Dahil Et",
+                        width="small",
+                        default=True,
+                    ),
+                    "Soru / Sütun Adı": st.column_config.TextColumn(
+                        "Sütun Adı (Sayısal)",
+                        width="large",
+                        disabled=True
+                    )
+                },
+                hide_index=True,
+                use_container_width=True,
+                height=400 # Sabit yükseklik, scroll bar çıkar gerekirse
+            )
+            
+            # Seçilenleri filtrele
+            selected_rows = edited_df[edited_df["Seç"] == True]
+            selected_columns = selected_rows["Soru / Sütun Adı"].tolist()
+            
+            st.caption(f"Toplam {len(numeric_cols)} sayısal sütundan {len(selected_columns)} tanesi seçildi.")
 
-        # Seçim için geçici bir DataFrame oluşturalım
-        # Varsayılan olarak hepsi seçili gelsin (True)
-        selection_data = pd.DataFrame({
-            "Analize Dahil Et": [True] * len(numeric_cols),
-            "Soru / Sütun Adı": numeric_cols
-        })
-
-        # Data Editor: Kullanıcının kutucukları işaretleyebileceği tablo
-        edited_df = st.data_editor(
-            selection_data,
-            column_config={
-                "Analize Dahil Et": st.column_config.CheckboxColumn(
-                    "Seçim",
-                    help="Analize dahil etmek için işaretleyin",
-                    default=True,
-                ),
-                "Soru / Sütun Adı": st.column_config.TextColumn(
-                    "Sütun Adı",
-                    width="large", # Genişlik ayarı: Sütun adları tam okunsun
-                    disabled=True   # Sütun adlarını değiştiremesin, sadece okusun
+        # --- SAĞ TARAFI AYARLA (SADECE GÖRÜNTÜLEME) ---
+        with col_right:
+            st.subheader("Bilgi Sütunları")
+            if text_cols:
+                st.warning("Bu sütunlar metin içerdiği için analize dahil edilmez, sadece bilgi amaçlıdır.")
+                
+                # Sadece görüntüleme amaçlı DataFrame
+                text_display_df = pd.DataFrame({"Metin Sütunları": text_cols})
+                
+                st.dataframe(
+                    text_display_df,
+                    hide_index=True,
+                    use_container_width=True,
+                    height=400 # Sol tarafla eşit boyda olsun
                 )
-            },
-            hide_index=True, # Satır numaralarını gizle
-            use_container_width=True, # Ekranın tamamını kapla
-            height=300 # Yükseklik (kaydırma çubuğu çıkar çok sütun varsa)
-        )
+            else:
+                st.info("Bu dosyada hiç metin sütunu bulunamadı.")
 
-        # Tablodan seçili olanları filtrele
-        selected_rows = edited_df[edited_df["Analize Dahil Et"] == True]
-        selected_columns = selected_rows["Soru / Sütun Adı"].tolist()
-
-        st.write(f"**Seçilen Sütun Sayısı:** {len(selected_columns)}")
-
-        # --- ANALİZ BUTONU ---
-        st.write("")
-        analyze_btn = st.button("🚀 Analizi Başlat", type="primary", use_container_width=True)
-
-        if analyze_btn:
+        # --- ANALİZ BUTONU VE SONUÇLAR ---
+        st.divider()
+        
+        # Butonu ortalamak veya genişletmek için container kullanımı
+        action_col = st.container()
+        
+        if action_col.button("🚀 Analizi Başlat", type="primary", use_container_width=True):
             if len(selected_columns) < 2:
-                st.error("Lütfen hesaplama yapabilmek için tablodan en az 2 sütun seçin.")
+                st.error("Lütfen sol taraftan en az 2 sütun seçin.")
             else:
                 df_selected = df_raw[selected_columns]
                 
@@ -153,36 +177,48 @@ if uploaded_file:
                     history, target_scenario, max_scenario = optimize_scale(df_selected)
                     initial_alpha = history[0]['alpha']
                 
-                st.divider()
+                # SONUÇ ALANI
+                st.subheader("2. Analiz Sonuçları")
                 
-                # SONUÇLAR
-                st.subheader("2. Sonuçlar")
-                
-                col1, col2, col3 = st.columns(3)
-                col1.metric("Mevcut Alpha", f"{initial_alpha:.4f}")
-                col2.metric("Hedef", "0.7000")
-                col3.metric("Potansiyel Max Alpha", f"{max_scenario['alpha']:.4f}",
-                            delta=f"{max_scenario['alpha'] - initial_alpha:.4f}")
+                # Metrikler yan yana
+                m1, m2, m3 = st.columns(3)
+                m1.metric("Mevcut Cronbach's Alpha", f"{initial_alpha:.4f}")
+                m2.metric("Hedef Değer", "0.7000")
+                m3.metric("Ulaşılabilir Maksimum", f"{max_scenario['alpha']:.4f}", 
+                          delta=f"{max_scenario['alpha'] - initial_alpha:.4f}")
 
-                st.subheader("3. Öneriler")
+                st.write("") # Boşluk
+
+                # Senaryolar
+                col_res1, col_res2 = st.columns(2)
                 
-                if initial_alpha >= 0.70:
-                    st.success("✅ Mevcut veri seti zaten güvenilir (Alpha > 0.70).")
-                
-                elif target_scenario:
-                    st.warning(f"⚠️ Hedefe (0.70) ulaşmak için **{target_scenario['step']}** adet en 'uyumsuz' madde çıkarılmalı.")
-                    
-                    removed_items = [h['removed_item'] for h in history[1:target_scenario['step']+1]]
-                    
-                    st.markdown("#### Çıkarılması Gerekenler:")
-                    for i, item in enumerate(removed_items, 1):
-                        st.markdown(f"- **{i}. Adım:** `{item}` çıkarılmalı.")
+                with col_res1:
+                    st.markdown("### 🎯 0.70 Hedef Analizi")
+                    if initial_alpha >= 0.70:
+                        st.success("✅ Veri seti zaten güvenilir. Madde çıkarmaya gerek yok.")
+                    elif target_scenario:
+                        st.warning(f"0.70'i geçmek için **{target_scenario['step']}** madde çıkarılmalı.")
+                        st.markdown("**Sırasıyla Çıkarılacaklar:**")
                         
-                    st.success(f"Bu işlem sonunda Alpha: **{target_scenario['alpha']:.4f}** olacaktır.")
-                else:
-                    st.error("❌ 0.70 barajına ulaşılamıyor.")
+                        removed_items = [h['removed_item'] for h in history[1:target_scenario['step']+1]]
+                        for item in removed_items:
+                            st.text(f"❌ {item}")
+                        
+                        st.success(f"Yeni Alpha: **{target_scenario['alpha']:.4f}**")
+                    else:
+                        st.error("❌ Veri seti ne yapılırsa yapılsın 0.70 barajını geçemiyor.")
 
-                with st.expander("Detaylı Hesaplama Geçmişi"):
+                with col_res2:
+                    st.markdown("### 📈 Maksimum Performans Analizi")
+                    st.info(f"Maksimum değere ({max_scenario['alpha']:.4f}) ulaşmak için toplam **{max_scenario['step']}** madde çıkarılmalı.")
+                    
+                    with st.expander("Maksimum için çıkarılan tüm listeyi gör"):
+                        all_removed = [h['removed_item'] for h in history[1:max_scenario['step']+1]]
+                        st.write(all_removed)
+
+                # Detay Tablosu
+                st.divider()
+                with st.expander("🔍 Detaylı Adım Adım Hesaplama Tablosu"):
                     st.dataframe(pd.DataFrame(history)[['step', 'removed_item', 'alpha']], use_container_width=True)
 
     except Exception as e:
